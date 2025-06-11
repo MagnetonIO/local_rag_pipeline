@@ -1,0 +1,6 @@
+.env
+ai_preprints/
+.venv
+__pycache__
+logs/
+rag_data/
