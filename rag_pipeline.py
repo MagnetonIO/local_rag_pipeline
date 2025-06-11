@@ -53,11 +53,81 @@ class DocumentProcessor:
         '.dockerfile', '.gitignore', '.env', '.toml', '.ini', '.cfg'
     }
     
-    IGNORE_PATTERNS = {
-        '.git', '__pycache__', 'node_modules', '.venv', 'venv',
-        '.env', 'dist', 'build', '.next', '.nuxt', 'target',
-        'bin', 'obj', '.idea', '.vscode', '*.pyc', '*.pyo',
-        '*.so', '*.dll', '*.exe', '*.zip', '*.tar.gz'
+    # Directory patterns to ignore (language-specific dependency and build directories)
+    IGNORE_DIRECTORIES = {
+        # JavaScript/Node.js
+        'node_modules', 'bower_components', '.npm', '.yarn',
+        
+        # Python
+        '__pycache__', '.pytest_cache', 'site-packages', 'dist', 'build',
+        'egg-info', '.tox', '.coverage', '.mypy_cache',
+        
+        # Virtual environments
+        'venv', '.venv', 'env', '.env', 'virtualenv',
+        
+        # Java/Maven/Gradle
+        'target', 'build', '.gradle', '.m2',
+        
+        # .NET/C#
+        'bin', 'obj', 'packages', '.nuget',
+        
+        # Go
+        'vendor', 'pkg',
+        
+        # Rust
+        'target', 'Cargo.lock',
+        
+        # Ruby
+        'vendor', '.bundle', 'gems',
+        
+        # PHP
+        'vendor', 'composer.lock',
+        
+        # C/C++
+        'build', 'cmake-build-debug', 'cmake-build-release',
+        
+        # General IDE and tools
+        '.git', '.svn', '.hg', '.bzr',
+        '.idea', '.vscode', '.vs', '.DS_Store',
+        '.next', '.nuxt', '.cache', 'cache',
+        
+        # Operating system
+        'Thumbs.db', 'desktop.ini',
+        
+        # Logs and temporary files
+        'logs', 'log', 'tmp', 'temp', '.tmp', '.temp'
+    }
+    
+    # File patterns to ignore
+    IGNORE_FILE_PATTERNS = {
+        # Compiled files
+        '*.pyc', '*.pyo', '*.pyd', '*.so', '*.dll', '*.dylib', '*.exe',
+        '*.class', '*.jar', '*.war', '*.ear',
+        '*.o', '*.obj', '*.lib', '*.a',
+        
+        # Package files
+        '*.zip', '*.tar', '*.tar.gz', '*.tgz', '*.rar', '*.7z',
+        '*.deb', '*.rpm', '*.msi',
+        
+        # Lock files
+        'package-lock.json', 'yarn.lock', 'Pipfile.lock', 'poetry.lock',
+        'Gemfile.lock', 'composer.lock', 'Cargo.lock',
+        
+        # Log files
+        '*.log', '*.out', '*.err',
+        
+        # Database files
+        '*.db', '*.sqlite', '*.sqlite3',
+        
+        # Media files (usually too large and not useful for code analysis)
+        '*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', '*.svg', '*.ico',
+        '*.mp3', '*.mp4', '*.avi', '*.mov', '*.wmv', '*.pdf',
+        
+        # IDE files
+        '*.swp', '*.swo', '*~', '.DS_Store', 'Thumbs.db',
+        
+        # Environment files (may contain secrets)
+        '.env', '.env.local', '.env.production', '.env.development'
     }
     
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
@@ -67,17 +137,31 @@ class DocumentProcessor:
     
     def should_process_file(self, file_path: Path) -> bool:
         """Check if file should be processed"""
+        # Check file extension
         if file_path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
             return False
         
-        # Check ignore patterns
-        for pattern in self.IGNORE_PATTERNS:
-            if pattern in str(file_path):
+        # Check if file is in an ignored directory
+        path_parts = file_path.parts
+        for part in path_parts:
+            if part.lower() in self.IGNORE_DIRECTORIES:
+                return False
+        
+        # Check file name patterns
+        import fnmatch
+        file_name = file_path.name.lower()
+        for pattern in self.IGNORE_FILE_PATTERNS:
+            if fnmatch.fnmatch(file_name, pattern.lower()):
                 return False
         
         # Check file size (skip very large files)
         try:
-            if file_path.stat().st_size > 10 * 1024 * 1024:  # 10MB
+            file_size = file_path.stat().st_size
+            # Skip files larger than 10MB (likely not source code)
+            if file_size > 10 * 1024 * 1024:
+                return False
+            # Skip empty files
+            if file_size == 0:
                 return False
         except OSError:
             return False
@@ -357,32 +441,62 @@ class RAGPipeline:
         file_count = 0
         total_chunks = 0
         failed_files = []
+        skipped_dirs = set()
+        skipped_files = set()
         
         for file_path in dir_path.rglob("*"):
-            if file_path.is_file() and self.processor.should_process_file(file_path):
-                try:
-                    file_id = self._process_file(file_path, source_id, str(dir_path))
-                    if file_id:
-                        file_count += 1
-                        # Get chunk count for this file
-                        conn = sqlite3.connect(self.db_path)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT chunk_count FROM files WHERE id = ?", (file_id,))
-                        result = cursor.fetchone()
-                        if result:
-                            total_chunks += result[0]
-                        conn.close()
-                    else:
+            if file_path.is_file():
+                # Check if we should skip this file due to directory rules
+                should_skip_dir = False
+                for part in file_path.relative_to(dir_path).parts[:-1]:  # Exclude filename
+                    if part.lower() in self.processor.IGNORE_DIRECTORIES:
+                        skipped_dirs.add(part)
+                        should_skip_dir = True
+                        break
+                
+                if should_skip_dir:
+                    continue
+                
+                # Check if file should be processed
+                if self.processor.should_process_file(file_path):
+                    try:
+                        file_id = self._process_file(file_path, source_id, str(dir_path))
+                        if file_id:
+                            file_count += 1
+                            # Get chunk count for this file
+                            conn = sqlite3.connect(self.db_path)
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT chunk_count FROM files WHERE id = ?", (file_id,))
+                            result = cursor.fetchone()
+                            if result:
+                                total_chunks += result[0]
+                            conn.close()
+                        else:
+                            failed_files.append(str(file_path))
+                    except Exception as e:
+                        print(f"Error processing {file_path}: {e}")
                         failed_files.append(str(file_path))
-                except Exception as e:
-                    print(f"Error processing {file_path}: {e}")
-                    failed_files.append(str(file_path))
+                else:
+                    # Track why files were skipped for reporting
+                    if not file_path.suffix.lower() in self.processor.SUPPORTED_EXTENSIONS:
+                        continue  # Don't report unsupported extensions
+                    skipped_files.add(file_path.name)
         
         # Update source metadata
         self._update_source_metadata(source_id, "directory", str(dir_path), 
                                     None, None, file_count, total_chunks)
         
+        # Print summary
         print(f"Ingested {file_count} files, {total_chunks} chunks")
+        
+        if skipped_dirs:
+            print(f"Skipped directories: {', '.join(sorted(skipped_dirs))}")
+        
+        if len(skipped_files) > 0 and len(skipped_files) <= 20:
+            print(f"Skipped files: {', '.join(sorted(skipped_files))}")
+        elif len(skipped_files) > 20:
+            print(f"Skipped {len(skipped_files)} files (log files, binaries, etc.)")
+        
         if failed_files:
             print(f"Failed to process {len(failed_files)} files:")
             for failed_file in failed_files[:10]:  # Show first 10
@@ -413,29 +527,45 @@ class RAGPipeline:
         # Process files
         file_count = 0
         total_chunks = 0
+        skipped_dirs = set()
         
         for file_path in repo_dir.rglob("*"):
-            if file_path.is_file() and self.processor.should_process_file(file_path):
-                try:
-                    file_id = self._process_file(file_path, source_id, str(repo_dir))
-                    if file_id:
-                        file_count += 1
-                        # Get chunk count for this file
-                        conn = sqlite3.connect(self.db_path)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT chunk_count FROM files WHERE id = ?", (file_id,))
-                        result = cursor.fetchone()
-                        if result:
-                            total_chunks += result[0]
-                        conn.close()
-                except Exception as e:
-                    print(f"Error processing {file_path}: {e}")
+            if file_path.is_file():
+                # Check if we should skip this file due to directory rules
+                should_skip_dir = False
+                for part in file_path.relative_to(repo_dir).parts[:-1]:  # Exclude filename
+                    if part.lower() in self.processor.IGNORE_DIRECTORIES:
+                        skipped_dirs.add(part)
+                        should_skip_dir = True
+                        break
+                
+                if should_skip_dir:
+                    continue
+                
+                if self.processor.should_process_file(file_path):
+                    try:
+                        file_id = self._process_file(file_path, source_id, str(repo_dir))
+                        if file_id:
+                            file_count += 1
+                            # Get chunk count for this file
+                            conn = sqlite3.connect(self.db_path)
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT chunk_count FROM files WHERE id = ?", (file_id,))
+                            result = cursor.fetchone()
+                            if result:
+                                total_chunks += result[0]
+                            conn.close()
+                    except Exception as e:
+                        print(f"Error processing {file_path}: {e}")
         
         # Update source metadata
         self._update_source_metadata(source_id, "git", str(repo_dir), repo_url, 
                                     repo_info['commit_hash'], file_count, total_chunks)
         
         print(f"Ingested {file_count} files, {total_chunks} chunks")
+        if skipped_dirs:
+            print(f"Skipped directories: {', '.join(sorted(skipped_dirs))}")
+        
         return source_id
     
     def _process_file(self, file_path: Path, source_id: str, base_path: str) -> Optional[str]:
