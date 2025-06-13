@@ -59,6 +59,12 @@ def initialize_rag(data_dir: str):
             capabilities.append("directory ingestion")
         if hasattr(rag_pipeline, 'ingest_git_repo'):
             capabilities.append("git ingestion")
+        if hasattr(rag_pipeline, 'search_commits_by_ticket'):
+            capabilities.append("ticket search")
+        if hasattr(rag_pipeline, 'reprocess_git_commits'):
+            capabilities.append("commit reprocessing")
+        if hasattr(rag_pipeline, 'incremental_update'):
+            capabilities.append("incremental updates")
             
         print(f"🔧 Available capabilities: {', '.join(capabilities)}")
         
@@ -112,7 +118,10 @@ def server_status() -> str:
                 ('list_sources', 'Source listing'),
                 ('ingest_directory', 'Directory ingestion'),
                 ('ingest_git_repo', 'Git repository ingestion'),
-                ('delete_source', 'Source deletion')
+                ('delete_source', 'Source deletion'),
+                ('search_commits_by_ticket', 'Ticket-based commit search'),
+                ('reprocess_git_commits', 'Git commit reprocessing'),
+                ('incremental_update', 'Incremental source updates')
             ]
             
             for method, description in method_checks:
@@ -148,13 +157,15 @@ def server_status() -> str:
                 sources = rag_pipeline.list_sources()
                 total_files = sum(s.get('file_count', 0) for s in sources)
                 total_chunks = sum(s.get('chunk_count', 0) for s in sources)
+                total_commits = sum(s.get('commit_count', 0) for s in sources)
                 
                 lines.extend([
                     "",
                     f"📊 **Data Overview:**",
                     f"   📂 Sources: {len(sources)}",
                     f"   📄 Total Files: {total_files}",
-                    f"   🧩 Total Chunks: {total_chunks}"
+                    f"   🧩 Total Chunks: {total_chunks}",
+                    f"   📝 Total Commits: {total_commits}"
                 ])
                 
                 if sources:
@@ -164,9 +175,15 @@ def server_status() -> str:
                     ])
                     for source in sources[:5]:  # Show first 5 sources
                         source_id = source.get('id', 'Unknown')
+                        source_type = source.get('type', 'Unknown')
                         file_count = source.get('file_count', 0)
                         chunk_count = source.get('chunk_count', 0)
-                        lines.append(f"   • {source_id}: {file_count} files, {chunk_count} chunks")
+                        commit_count = source.get('commit_count', 0)
+                        
+                        if commit_count > 0:
+                            lines.append(f"   • {source_id} ({source_type}): {file_count} files, {chunk_count} chunks, {commit_count} commits")
+                        else:
+                            lines.append(f"   • {source_id} ({source_type}): {file_count} files, {chunk_count} chunks")
                     
                     if len(sources) > 5:
                         lines.append(f"   ... and {len(sources) - 5} more sources")
@@ -220,22 +237,42 @@ def search_documents(query: str, limit: int = 5, source_filter: Optional[str] = 
         ])
         
         for i, doc in enumerate(results, 1):
-            file_path = get_file_path(doc)
-            source_id = get_source_id(doc)
-            similarity = 1 - doc.get('distance', 1)
-            content = get_content(doc)
+            metadata = doc.get('metadata', {})
+            content_type = metadata.get('content_type', 'file')
             
-            # Create content preview
-            content_preview = content[:400] if content else "No content available"
-            if len(content) > 400:
-                content_preview += "..."
-            
-            lines.extend([
-                f"**{i}. {file_path}** (similarity: {similarity:.3f})",
-                f"   📂 Source: {source_id}",
-                f"   📄 Content: {content_preview}",
-                ""
-            ])
+            if content_type == 'git_commit':
+                # Handle git commit results
+                commit_hash = metadata.get('commit_hash', 'unknown')[:8]
+                author = metadata.get('author_name', 'unknown')
+                subject = metadata.get('subject', 'No subject')
+                repo_name = metadata.get('repository_name', 'unknown')
+                similarity = 1 - doc.get('distance', 1)
+                
+                lines.extend([
+                    f"**{i}. Git Commit {commit_hash}** (similarity: {similarity:.3f})",
+                    f"   👤 Author: {author}",
+                    f"   📂 Repository: {repo_name}",
+                    f"   📝 Subject: {subject}",
+                    f"   📄 Preview: {get_content(doc)[:300]}...",
+                    ""
+                ])
+            else:
+                # Handle file results
+                file_path = get_file_path(doc)
+                source_id = get_source_id(doc)
+                similarity = 1 - doc.get('distance', 1)
+                content = get_content(doc)
+                
+                content_preview = content[:400] if content else "No content available"
+                if len(content) > 400:
+                    content_preview += "..."
+                
+                lines.extend([
+                    f"**{i}. {file_path}** (similarity: {similarity:.3f})",
+                    f"   📂 Source: {source_id}",
+                    f"   📄 Content: {content_preview}",
+                    ""
+                ])
         
         return "\n".join(lines)
         
@@ -243,13 +280,76 @@ def search_documents(query: str, limit: int = 5, source_filter: Optional[str] = 
         return f"❌ Search error: {str(e)}"
 
 @mcp.tool()
-def ask_question(question: str, max_context_chunks: int = 3) -> str:
+def search_commits_by_ticket(ticket_id: str, source_filter: Optional[str] = None) -> str:
+    """
+    Search for git commits related to a specific ticket ID (e.g., GET-1903, JIRA-123).
+    
+    Args:
+        ticket_id: Ticket ID to search for (e.g., GET-1903)
+        source_filter: Optional source ID to limit search to specific source
+    """
+    if not rag_pipeline:
+        if rag_error:
+            return f"❌ RAG Error: {rag_error}"
+        return "❌ RAG pipeline not loaded"
+    
+    if not ticket_id.strip():
+        return "❌ Please provide a ticket ID"
+    
+    if not hasattr(rag_pipeline, 'search_commits_by_ticket'):
+        return "❌ Ticket-based commit search not available in this RAG pipeline"
+    
+    try:
+        results = rag_pipeline.search_commits_by_ticket(ticket_id, source_filter)
+        
+        if not results:
+            search_info = f" in source '{source_filter}'" if source_filter else ""
+            return f"🎫 No commits found for ticket '{ticket_id}'{search_info}"
+        
+        lines = [
+            f"🎫 **Commits for Ticket:** {ticket_id}",
+        ]
+        
+        if source_filter:
+            lines.append(f"📂 **Source Filter:** {source_filter}")
+        
+        lines.extend([
+            f"📊 **Found:** {len(results)} related commits",
+            ""
+        ])
+        
+        for i, doc in enumerate(results, 1):
+            metadata = doc.get('metadata', {})
+            commit_hash = metadata.get('commit_hash', 'unknown')[:8]
+            author = metadata.get('author_name', 'unknown')
+            subject = metadata.get('subject', 'No subject')
+            repo_name = metadata.get('repository_name', 'unknown')
+            commit_date = metadata.get('commit_date', 'unknown')
+            similarity = 1 - doc.get('distance', 1)
+            
+            lines.extend([
+                f"**{i}. Commit {commit_hash}** (relevance: {similarity:.3f})",
+                f"   👤 Author: {author}",
+                f"   📅 Date: {commit_date}",
+                f"   📂 Repository: {repo_name}",
+                f"   📝 Subject: {subject}",
+                f"   📄 Preview: {get_content(doc)[:300]}...",
+                ""
+            ])
+        
+        return "\n".join(lines)
+        
+    except Exception as e:
+        return f"❌ Ticket search error: {str(e)}"
+
+@mcp.tool()
+def ask_question(question: str, model: str = "claude") -> str:
     """
     Ask a question and get an AI-generated response using the RAG pipeline's LLM integration.
     
     Args:
         question: Question to ask about the documents
-        max_context_chunks: Maximum number of context chunks to include (1-10)
+        model: AI model to use (claude, openai, gpt)
     """
     if not rag_pipeline:
         if rag_error:
@@ -262,18 +362,16 @@ def ask_question(question: str, max_context_chunks: int = 3) -> str:
     if not hasattr(rag_pipeline, 'query_with_llm'):
         return "❌ AI querying not available. This RAG pipeline doesn't have LLM integration configured."
     
-    # Limit context chunks to reasonable range
-    max_context_chunks = max(1, min(max_context_chunks, 10))
-    
     try:
-        # Use the RAG pipeline's native LLM querying
-        response = rag_pipeline.query_with_llm(question, max_context_chunks=max_context_chunks)
+        # Use the RAG pipeline's native LLM querying with model selection
+        response = rag_pipeline.query_with_llm(question, model=model)
         
         # Get source documents for transparency
-        search_results = rag_pipeline.search(question, limit=max_context_chunks)
+        search_results = rag_pipeline.search(question, limit=3)
         
         result_lines = [
             f"🤖 **Question:** {question}",
+            f"🧠 **Model:** {model}",
             "",
             f"**Answer:** {response}",
             ""
@@ -286,14 +384,24 @@ def ask_question(question: str, max_context_chunks: int = 3) -> str:
             ])
             
             for i, doc in enumerate(search_results, 1):
-                file_path = get_file_path(doc)
-                source_id = get_source_id(doc)
+                metadata = doc.get('metadata', {})
+                content_type = metadata.get('content_type', 'file')
                 similarity = 1 - doc.get('distance', 1)
                 
-                result_lines.extend([
-                    f"{i}. **{file_path}** (relevance: {similarity:.3f})",
-                    f"   Source: {source_id}"
-                ])
+                if content_type == 'git_commit':
+                    commit_hash = metadata.get('commit_hash', 'unknown')[:8]
+                    author = metadata.get('author_name', 'unknown')
+                    result_lines.extend([
+                        f"{i}. **Commit {commit_hash}** (relevance: {similarity:.3f})",
+                        f"   Author: {author}"
+                    ])
+                else:
+                    file_path = get_file_path(doc)
+                    source_id = get_source_id(doc)
+                    result_lines.extend([
+                        f"{i}. **{file_path}** (relevance: {similarity:.3f})",
+                        f"   Source: {source_id}"
+                    ])
         
         return "\n".join(result_lines)
         
@@ -332,7 +440,7 @@ def query_with_context(question: str, max_context_chunks: int = 3) -> str:
         ai_response = None
         if hasattr(rag_pipeline, 'query_with_llm'):
             try:
-                ai_response = rag_pipeline.query_with_llm(question, max_context_chunks=max_context_chunks)
+                ai_response = rag_pipeline.query_with_llm(question)
             except Exception as e:
                 ai_response = f"AI response generation failed: {str(e)}"
         
@@ -356,8 +464,8 @@ def query_with_context(question: str, max_context_chunks: int = 3) -> str:
         ])
         
         for i, doc in enumerate(context_docs, 1):
-            file_path = get_file_path(doc)
-            source_id = get_source_id(doc)
+            metadata = doc.get('metadata', {})
+            content_type = metadata.get('content_type', 'file')
             similarity = 1 - doc.get('distance', 1)
             content = get_content(doc)
             
@@ -366,12 +474,28 @@ def query_with_context(question: str, max_context_chunks: int = 3) -> str:
             if len(content) > 600:
                 content_preview += "..."
             
-            result_lines.extend([
-                f"**{i}. {file_path}** (relevance: {similarity:.3f})",
-                f"   📂 Source: {source_id}",
-                f"   📄 Context: {content_preview}",
-                ""
-            ])
+            if content_type == 'git_commit':
+                commit_hash = metadata.get('commit_hash', 'unknown')[:8]
+                author = metadata.get('author_name', 'unknown')
+                subject = metadata.get('subject', 'No subject')
+                
+                result_lines.extend([
+                    f"**{i}. Git Commit {commit_hash}** (relevance: {similarity:.3f})",
+                    f"   👤 Author: {author}",
+                    f"   📝 Subject: {subject}",
+                    f"   📄 Context: {content_preview}",
+                    ""
+                ])
+            else:
+                file_path = get_file_path(doc)
+                source_id = get_source_id(doc)
+                
+                result_lines.extend([
+                    f"**{i}. {file_path}** (relevance: {similarity:.3f})",
+                    f"   📂 Source: {source_id}",
+                    f"   📄 Context: {content_preview}",
+                    ""
+                ])
         
         return "\n".join(result_lines)
         
@@ -399,34 +523,39 @@ def list_sources() -> str:
         
         total_files = 0
         total_chunks = 0
+        total_commits = 0
         
         for source in sources:
             source_id = source.get('id', 'Unknown')
             source_type = source.get('type', 'Unknown')
             file_count = source.get('file_count', 0)
             chunk_count = source.get('chunk_count', 0)
+            commit_count = source.get('commit_count', 0)
             last_indexed = source.get('last_indexed', 'Unknown')
-            url = source.get('url', '')
             
             total_files += file_count
             total_chunks += chunk_count
+            total_commits += commit_count
             
             lines.extend([
                 f"📂 **{source_id}** ({source_type})",
                 f"   📄 Files: {file_count} | 🧩 Chunks: {chunk_count}",
-                f"   🕒 Last indexed: {last_indexed}",
             ])
             
-            if url:
-                lines.append(f"   🔗 URL: {url}")
+            if commit_count > 0:
+                lines.append(f"   📝 Commits: {commit_count}")
             
-            lines.append("")
+            lines.extend([
+                f"   🕒 Last indexed: {last_indexed}",
+                ""
+            ])
         
         # Add summary
         lines.extend([
             "📊 **Summary:**",
             f"   Total files: {total_files}",
-            f"   Total chunks: {total_chunks}"
+            f"   Total chunks: {total_chunks}",
+            f"   Total commits: {total_commits}"
         ])
         
         return "\n".join(lines)
@@ -483,6 +612,57 @@ def ingest_git_repository(repo_url: str, source_name: Optional[str] = None) -> s
         return f"❌ Ingestion error: {str(e)}"
 
 @mcp.tool()
+def reprocess_git_commits(source_id: str) -> str:
+    """
+    Reprocess Git commits for an existing source (useful after fixing commit processing issues).
+    
+    Args:
+        source_id: ID of the source to reprocess commits for
+    """
+    if not rag_pipeline:
+        return "❌ RAG pipeline not loaded"
+    
+    if not hasattr(rag_pipeline, 'reprocess_git_commits'):
+        return "❌ Git commit reprocessing not available in this RAG pipeline"
+    
+    if not source_id.strip():
+        return "❌ Please provide a source ID"
+    
+    try:
+        commit_count = rag_pipeline.reprocess_git_commits(source_id)
+        return f"✅ Successfully reprocessed {commit_count} commits for source: {source_id}"
+    except Exception as e:
+        return f"❌ Reprocessing error: {str(e)}"
+
+@mcp.tool()
+def incremental_update(source_id: str) -> str:
+    """
+    Perform an incremental update on an existing source (add new commits and files).
+    
+    Args:
+        source_id: ID of the source to update
+    """
+    if not rag_pipeline:
+        return "❌ RAG pipeline not loaded"
+    
+    if not hasattr(rag_pipeline, 'incremental_update'):
+        return "❌ Incremental updates not available in this RAG pipeline"
+    
+    if not source_id.strip():
+        return "❌ Please provide a source ID"
+    
+    try:
+        stats = rag_pipeline.incremental_update(source_id)
+        return f"""✅ Incremental update completed for source: {source_id}
+📊 Summary:
+   • New commits: {stats['new_commits']}
+   • Updated files: {stats['updated_files']}
+   • New files: {stats['new_files']}
+   • Repositories processed: {stats['repositories_processed']}"""
+    except Exception as e:
+        return f"❌ Update error: {str(e)}"
+
+@mcp.tool()
 def delete_source(source_id: str) -> str:
     """
     Delete a source and all its data from the RAG pipeline.
@@ -526,11 +706,12 @@ def get_server_status():
     
     if rag_pipeline:
         try:
-            # Check all capabilities
+            # Check all capabilities including new ones
             capabilities = {}
             capability_methods = [
                 'search', 'query_with_llm', 'list_sources', 
-                'ingest_directory', 'ingest_git_repo', 'delete_source'
+                'ingest_directory', 'ingest_git_repo', 'delete_source',
+                'search_commits_by_ticket', 'reprocess_git_commits', 'incremental_update'
             ]
             
             for method in capability_methods:
@@ -545,6 +726,7 @@ def get_server_status():
                     "count": len(sources),
                     "total_files": sum(s.get('file_count', 0) for s in sources),
                     "total_chunks": sum(s.get('chunk_count', 0) for s in sources),
+                    "total_commits": sum(s.get('commit_count', 0) for s in sources),
                     "details": sources
                 }
             
