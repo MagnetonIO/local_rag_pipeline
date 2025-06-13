@@ -2,17 +2,39 @@
 
 ## Overview
 
-This MCP (Model Context Protocol) server exposes your local RAG pipeline to Claude Desktop, enabling Claude to search, query, and manage your ingested documents and codebases directly.
+This MCP (Model Context Protocol) server exposes your local RAG pipeline to Claude Desktop, enabling Claude to search, query, and manage your ingested documents and codebases directly. **Now powered by FastMCP** for improved performance and reliability.
+
+## What's New
+
+### 🚀 **FastMCP Implementation**
+- Migrated from traditional MCP to **FastMCP** for better performance
+- Simplified server architecture with modern MCP patterns
+- Enhanced error handling and reliability
+
+### 🔧 **New Git-Powered Features**
+- **Ticket-based commit search**: Find all commits related to specific tickets (e.g., JIRA-123, GET-1903)
+- **Git commit reprocessing**: Fix and reprocess commits for existing sources
+- **Incremental updates**: Add new commits and files to existing sources without full re-ingestion
+- **Enhanced git analysis**: Deep integration with git history and commit metadata
+
+### 📋 **Enhanced Tools**
+- `search_commits_by_ticket` - Search commits by ticket ID
+- `reprocess_git_commits` - Reprocess git commits for existing sources
+- `incremental_update` - Perform incremental updates on existing sources
+- Improved `server_status` with detailed capability reporting
 
 ## Installation
 
 ### 1. Install Dependencies
 ```bash
-# Core MCP package
+# Core MCP package (FastMCP)
 pip install mcp
 
 # RAG pipeline dependencies (if not already installed)
 pip install chromadb sentence-transformers anthropic openai tiktoken
+
+# Git processing dependencies
+pip install gitpython
 
 # Optional: For ngrok tunneling
 # Download from https://ngrok.com/download
@@ -33,14 +55,14 @@ snap install ngrok
 
 ### 1. Start the MCP Server Locally
 ```bash
-# Basic local server
+# Basic local server (FastMCP)
 python mcp_rag_server.py --data-dir ./rag_data
 
-# With ngrok tunnel (public access)
-python mcp_rag_server.py --data-dir ./rag_data --ngrok
+# With specific transport method
+python mcp_rag_server.py --data-dir ./rag_data --transport stdio
 
-# With authentication
-python mcp_rag_server.py --data-dir ./rag_data --ngrok --auth-token your-secret-token
+# Disable RAG for testing
+python mcp_rag_server.py --data-dir ./rag_data --no-rag
 ```
 
 ### 2. Configure Claude Desktop
@@ -65,125 +87,33 @@ Add to your Claude Desktop configuration file:
 }
 ```
 
-**For ngrok/remote access:**
-```json
-{
-  "mcpServers": {
-    "rag-server": {
-      "command": "python",
-      "args": ["/path/to/mcp_rag_server.py", "--data-dir", "/path/to/rag_data", "--ngrok"],
-      "env": {
-        "ANTHROPIC_API_KEY": "your-anthropic-api-key",
-        "OPENAI_API_KEY": "your-openai-api-key"
-      }
-    }
-  }
-}
-```
-
 ### 3. Restart Claude Desktop
 
 After updating the configuration, restart Claude Desktop to load the MCP server.
-
-## Zero-Trust Network Setup
-
-### Option 1: Tailscale (Recommended)
-
-1. **Install Tailscale** on both machines:
-   ```bash
-   # macOS
-   brew install tailscale
-   
-   # Ubuntu/Debian
-   curl -fsSL https://tailscale.com/install.sh | sh
-   ```
-
-2. **Start Tailscale** and authenticate:
-   ```bash
-   sudo tailscale up
-   ```
-
-3. **Run MCP server** on your local machine:
-   ```bash
-   python mcp_rag_server.py --data-dir ./rag_data --port 8000
-   ```
-
-4. **Configure Claude Desktop** to use Tailscale IP:
-   ```json
-   {
-     "mcpServers": {
-       "rag-server": {
-         "command": "python",
-         "args": ["/path/to/mcp_rag_server.py", "--data-dir", "/path/to/rag_data"],
-         "env": {
-           "MCP_SERVER_URL": "http://100.x.x.x:8000"
-         }
-       }
-     }
-   }
-   ```
-
-### Option 2: Cloudflare Tunnel
-
-1. **Install cloudflared**:
-   ```bash
-   # macOS
-   brew install cloudflare/cloudflare/cloudflared
-   
-   # Ubuntu/Debian
-   wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-   sudo dpkg -i cloudflared-linux-amd64.deb
-   ```
-
-2. **Authenticate**:
-   ```bash
-   cloudflared tunnel login
-   ```
-
-3. **Create tunnel**:
-   ```bash
-   cloudflared tunnel create rag-server
-   cloudflared tunnel route dns rag-server rag.yourdomain.com
-   ```
-
-4. **Start tunnel**:
-   ```bash
-   cloudflared tunnel run --url http://localhost:8000 rag-server
-   ```
 
 ## Available Tools
 
 Once configured, Claude will have access to these tools:
 
-### 🔍 **search_documents**
-Search for relevant documents using semantic similarity
-```
-Example: "Search for authentication logic in the codebase"
-```
+### 🔍 **Core Search Tools**
+- **search_documents**: Search for relevant documents using semantic similarity
+- **query_with_context**: Ask questions and get AI-powered answers with relevant context
+- **ask_question**: Direct AI-powered question answering using the RAG pipeline
 
-### 💬 **query_with_context**
-Ask questions and get AI-powered answers with relevant context
-```
-Example: "How does the user authentication system work?"
-```
+### 🔧 **New Git-Powered Tools**
+- **search_commits_by_ticket**: Find commits related to specific ticket IDs (e.g., JIRA-123, GET-1903)
+- **reprocess_git_commits**: Reprocess git commits for an existing source
+- **incremental_update**: Perform incremental updates (add new commits/files) on existing sources
 
-### 📁 **ingest_directory**
-Add a local directory to the RAG pipeline
-```
-Example: Ingest "/path/to/my/project"
-```
+### 📁 **Data Management Tools**
+- **ingest_directory**: Add a local directory to the RAG pipeline
+- **ingest_git_repository**: Clone and ingest a git repository
+- **list_sources**: Show all ingested sources and their statistics
+- **delete_source**: Remove a source and all its documents
 
-### 🔗 **ingest_git_repo**
-Clone and ingest a git repository
-```
-Example: Ingest "https://github.com/user/repo.git"
-```
-
-### 📋 **list_sources**
-Show all ingested sources and their statistics
-
-### 🗑️ **delete_source**
-Remove a source and all its documents
+### 🛠️ **System Tools**
+- **ping**: Test server connectivity
+- **server_status**: Get detailed server status including capabilities
 
 ## Usage Examples
 
@@ -192,6 +122,15 @@ Remove a source and all its documents
 Claude: "Search my codebase for database connection logic"
 Claude: "How does the authentication system work in my project?"
 Claude: "Show me all the API endpoints in the ingested code"
+```
+
+### New Git-Powered Queries
+```
+Claude: "Find all commits related to ticket JIRA-1234"
+Claude: "Search for commits related to GET-1903"
+Claude: "Show me what was changed for bug ticket BUG-567"
+Claude: "Reprocess git commits for my main project source"
+Claude: "Perform an incremental update on my codebase source"
 ```
 
 ### Management
@@ -207,18 +146,74 @@ Claude: "Delete the old project source"
 Claude: "Find security vulnerabilities in my authentication code"
 Claude: "Explain how the database schema relates to the API endpoints"
 Claude: "What are the main architectural patterns used in this codebase?"
+Claude: "Show me the git history for authentication-related changes"
 ```
+
+## Configuration Options
+
+### Server Arguments
+```bash
+# Basic usage
+python mcp_rag_server.py --data-dir ./rag_data
+
+# Transport options
+python mcp_rag_server.py --data-dir ./rag_data --transport stdio
+python mcp_rag_server.py --data-dir ./rag_data --transport sse
+
+# Disable RAG for testing
+python mcp_rag_server.py --data-dir ./rag_data --no-rag
+```
+
+### Claude Desktop Configuration
+```json
+{
+  "mcpServers": {
+    "rag-server": {
+      "command": "python",
+      "args": [
+        "/path/to/mcp_rag_server.py",
+        "--data-dir", "/path/to/rag_data",
+        "--transport", "stdio"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "your-anthropic-api-key",
+        "OPENAI_API_KEY": "your-openai-api-key"
+      }
+    }
+  }
+}
+```
+
+## Git Integration Features
+
+### Ticket-Based Commit Search
+The server now supports searching for commits related to specific tickets:
+- Automatically detects ticket patterns (JIRA-123, GET-1903, BUG-456, etc.)
+- Searches commit messages, branches, and metadata
+- Returns relevant commits with full context
+
+### Incremental Updates
+Instead of re-ingesting entire repositories:
+- Add only new commits since last update
+- Process new files and changes
+- Maintains existing embeddings and metadata
+- Significantly faster for large repositories
+
+### Git Commit Reprocessing
+Fix and reprocess commits for existing sources:
+- Useful when git processing logic is improved
+- Maintains source metadata while updating commit data
+- Preserves existing file embeddings
 
 ## Security Considerations
 
 ### Authentication
-- Use `--auth-token` for token-based authentication
+- Use environment variables for API keys
 - Implement IP whitelisting for production
 - Use HTTPS in production environments
 
 ### Network Security
 - **Local only**: No network exposure (most secure)
-- **ngrok**: Temporary public tunnels (good for testing)
 - **Tailscale**: Zero-trust mesh network (recommended for teams)
 - **Cloudflare**: Enterprise-grade tunnel with DDoS protection
 
@@ -232,7 +227,13 @@ Claude: "What are the main architectural patterns used in this codebase?"
 
 ### Common Issues
 
-1. **"MCP server not responding"**
+1. **"FastMCP import failed"**
+   ```bash
+   # Ensure you have the latest MCP package
+   pip install --upgrade mcp
+   ```
+
+2. **"MCP server not responding"**
    ```bash
    # Check if server is running
    ps aux | grep mcp_rag_server
@@ -241,7 +242,7 @@ Claude: "What are the main architectural patterns used in this codebase?"
    python mcp_rag_server.py --data-dir ./rag_data
    ```
 
-2. **"No documents found"**
+3. **"No documents found"**
    ```bash
    # Verify sources are ingested
    python rag_pipeline.py list
@@ -250,49 +251,56 @@ Claude: "What are the main architectural patterns used in this codebase?"
    python rag_pipeline.py ingest-dir /path/to/project
    ```
 
-3. **"Authentication failed"**
-   - Check API keys in environment variables
-   - Verify auth token if using `--auth-token`
+4. **"Git processing failed"**
+   ```bash
+   # Check git repository access
+   git -C /path/to/repo status
+   
+   # Reprocess git commits
+   python rag_pipeline.py reprocess-commits <source_id>
+   ```
 
 ### Debug Mode
 ```bash
 # Run with verbose logging
-python mcp_rag_server.py --data-dir ./rag_data --log-level DEBUG
+python mcp_rag_server.py --data-dir ./rag_data --transport stdio
 ```
 
 ## Performance Optimization
 
 ### For Large Codebases
+- Use incremental updates instead of full re-ingestion
 - Increase chunk size for better context
 - Use source filtering for specific projects
 - Consider excluding certain file types
 
-### Network Optimization
-- Use compression for remote connections
-- Implement caching for frequent queries
-- Batch multiple operations
+### Git Processing Optimization
+- Process commits in batches
+- Use incremental updates for frequent changes
+- Filter by specific branches or date ranges
+- Cache git metadata for faster processing
 
-## Integration Examples
+## Migration from Old MCP
 
-### VS Code Extension
-Create a VS Code extension that uses the MCP server for code analysis and documentation generation.
+If you're upgrading from the old MCP implementation:
 
-### CI/CD Integration
-Add the RAG pipeline to your CI/CD for automated code review and documentation updates.
-
-### Team Setup
-Deploy on a shared server with team access via Tailscale or VPN.
+1. **Update your configuration** - No changes needed in Claude Desktop config
+2. **Restart Claude Desktop** - The new FastMCP server is backward compatible
+3. **Test new features** - Try the new git-powered tools
+4. **Incremental updates** - Use the new incremental update feature instead of full re-ingestion
 
 ## Next Steps
 
 1. **Ingest your projects**: Start with your most important codebases
-2. **Set up secure access**: Use Tailscale or Cloudflare for remote access
-3. **Integrate with workflow**: Add to your daily development routine
-4. **Scale up**: Consider distributed setup for large teams
+2. **Try git features**: Use ticket-based commit search for your development workflow
+3. **Set up incremental updates**: Keep your sources up-to-date automatically
+4. **Integrate with workflow**: Add to your daily development routine
+5. **Scale up**: Consider distributed setup for large teams
 
 ## Support
 
 - Check logs for error messages
 - Verify all dependencies are installed
 - Ensure proper file permissions
-- Test network connectivity for remote setups
+- Test git repository access for git-powered features
+- Use `server_status` tool to check capabilities and configuration
