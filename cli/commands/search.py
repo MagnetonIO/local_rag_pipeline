@@ -1,67 +1,115 @@
-#!/usr/bin/env python3
 """
-Search commands for RAG Pipeline CLI  
+Search command handlers for RAG Pipeline CLI
 """
 
 import logging
-from pathlib import Path
+from typing import Optional
+from cli.config import config
 
 logger = logging.getLogger(__name__)
 
-def add_search_commands(subparsers):
-    """Add search commands to the parser"""
-    # Search command
-    search_parser = subparsers.add_parser("search", help="Search documents")
-    search_parser.add_argument("query", help="Search query")
-    search_parser.add_argument("--limit", type=int, default=5, help="Number of results")
-    search_parser.add_argument("--source", help="Filter by source ID")
-    
-    # Query command
-    query_parser = subparsers.add_parser("query", help="Query with AI")
-    query_parser.add_argument("question", help="Question to ask")
-    query_parser.add_argument("--model", default="claude", choices=["claude", "openai"], help="AI model to use")
-    query_parser.add_argument("--source", help="Filter by source ID")
 
-def handle_search_command(args):
-    """Handle search command"""
+def search(rag_pipeline, query: str, limit: int = None, source_id: Optional[str] = None) -> bool:
+    """Search for documents using semantic search"""
     try:
-        from rag_pipeline import RAGPipeline
+        if limit is None:
+            limit = config.DEFAULT_SEARCH_LIMIT
+        limit = max(1, min(limit, config.MAX_SEARCH_LIMIT))  # Clamp to valid range
         
-        data_dir = Path(args.data_dir)
-        rag = RAGPipeline(str(data_dir))
+        print(f"🔍 Searching for: {query}")
+        if source_id:
+            print(f"   Filtering by source: {source_id}")
         
-        if args.command == "search":
-            results = rag.search(args.query, args.limit, args.source)
-            
-            if not results:
-                print(f"No results found for: {args.query}")
-                return True
-            
-            print(f"🔍 Search Results for: {args.query}")
-            print(f"Found {len(results)} results:\n")
-            
-            for i, result in enumerate(results, 1):
-                metadata = result.get('metadata', {})
-                file_path = metadata.get('file_path', 'Unknown file')
-                distance = result.get('distance', 1.0)
-                similarity = 1 - distance
-                content = result.get('content', '')[:200]
-                
-                print(f"--- Result {i} ---")
-                print(f"📄 File: {file_path}")
-                print(f"📊 Similarity: {similarity:.3f}")
-                print(f"📝 Content: {content}...")
-                print()
+        results = rag_pipeline.search(query, limit, source_id)
         
-        elif args.command == "query":
-            result = rag.query_with_llm(args.question, args.model, args.source)
-            print(f"🤖 AI Response:\n{result}")
+        if not results:
+            print("\nNo results found")
+            return True
+        
+        print(f"\nFound {len(results)} results:\n")
+        
+        for i, result in enumerate(results, 1):
+            metadata = result.get('metadata', {})
+            file_path = metadata.get('file_path', 'Unknown')
+            distance = result.get('distance', 1.0)
+            similarity = 1 - distance
+            content = result.get('content', '')
+            
+            # Truncate content for display
+            preview = content[:200] + "..." if len(content) > 200 else content
+            
+            print(f"{'='*60}")
+            print(f"Result {i}:")
+            print(f"  📄 File: {file_path}")
+            print(f"  📊 Similarity: {similarity:.1%}")
+            print(f"  📝 Content:\n    {preview.replace(chr(10), chr(10) + '    ')}")
         
         return True
         
-    except ImportError:
-        print("❌ RAG Pipeline module not found")
-        return False
     except Exception as e:
-        logger.error(f"Error executing search: {e}")
+        logger.error(f"Search failed: {e}")
+        return False
+
+
+def query(rag_pipeline, question: str, model: str = None, source_id: Optional[str] = None) -> bool:
+    """Query using AI with context from the knowledge base"""
+    try:
+        model = model or config.DEFAULT_AI_MODEL
+        
+        print(f"🤖 Asking {model.upper()}: {question}")
+        if source_id:
+            print(f"   Using source: {source_id}")
+        
+        print("\n⏳ Thinking...\n")
+        
+        response = rag_pipeline.query_with_llm(question, model, source_id)
+        
+        print("💡 Answer:")
+        print("─" * 60)
+        print(response)
+        print("─" * 60)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Query failed: {e}")
+        return False
+
+
+def search_ticket(rag_pipeline, ticket_id: str, limit: int = None, source_id: Optional[str] = None) -> bool:
+    """Search for Git commits by ticket ID"""
+    try:
+        if limit is None:
+            limit = config.DEFAULT_TICKET_SEARCH_LIMIT
+        limit = max(1, min(limit, config.MAX_SEARCH_LIMIT))  # Clamp to valid range
+        
+        print(f"🎫 Searching commits for ticket: {ticket_id}")
+        if source_id:
+            print(f"   In source: {source_id}")
+        
+        commits = rag_pipeline.search_commits_by_ticket(ticket_id, limit, source_id)
+        
+        if not commits:
+            print("\nNo commits found for this ticket")
+            return True
+        
+        print(f"\nFound {len(commits)} commits:\n")
+        
+        for commit in commits:
+            print(f"{'='*60}")
+            print(f"📝 {commit['sha'][:8]} - {commit['author']}")
+            print(f"📅 {commit['date']}")
+            print(f"💬 {commit['message'].strip()}")
+            
+            if commit.get('files_changed'):
+                print(f"\n📁 Files changed:")
+                for file in commit['files_changed'][:5]:  # Show first 5 files
+                    print(f"   - {file}")
+                if len(commit['files_changed']) > 5:
+                    print(f"   ... and {len(commit['files_changed']) - 5} more")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ticket search failed: {e}")
         return False

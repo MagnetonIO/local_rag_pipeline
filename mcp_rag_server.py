@@ -5,8 +5,27 @@ Works with your specific RAG pipeline for any type of data
 """
 
 import argparse
+import os
 import sys
 from typing import Optional
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv is optional, continue without it
+    pass
+
+# Configuration from environment variables
+class Config:
+    DATA_DIR = os.getenv('RAG_DATA_DIR', './rag_data')
+    MCP_HOST = os.getenv('RAG_MCP_HOST', 'localhost')
+    MCP_PORT = int(os.getenv('RAG_MCP_PORT', '8000'))
+    MCP_TRANSPORT = os.getenv('RAG_MCP_TRANSPORT', 'stdio')
+    ENABLE_RAG = os.getenv('RAG_MCP_ENABLE_RAG', 'true').lower() == 'true'
+    DEFAULT_SEARCH_LIMIT = int(os.getenv('RAG_DEFAULT_SEARCH_LIMIT', '5'))
+    MAX_SEARCH_LIMIT = int(os.getenv('RAG_MAX_SEARCH_LIMIT', '20'))
 
 # Modern MCP imports
 try:
@@ -31,7 +50,7 @@ mcp = FastMCP("General-RAG-Server")
 # Global variables for RAG
 rag_pipeline = None
 rag_error = None
-data_directory = "./rag_data"
+data_directory = Config.DATA_DIR
 
 def initialize_rag(data_dir: str):
     """Initialize RAG pipeline"""
@@ -194,7 +213,7 @@ def server_status() -> str:
     return "\n".join(lines)
 
 @mcp.tool()
-def search_documents(query: str, limit: int = 5, source_filter: Optional[str] = None) -> str:
+def search_documents(query: str, limit: int = None, source_filter: Optional[str] = None) -> str:
     """
     Search through all documents in the RAG pipeline using semantic similarity.
     
@@ -214,8 +233,9 @@ def search_documents(query: str, limit: int = 5, source_filter: Optional[str] = 
     if not hasattr(rag_pipeline, 'search'):
         return "❌ Search functionality not available in this RAG pipeline"
     
-    # Limit the results to a reasonable range
-    limit = max(1, min(limit, 20))
+    # Set default and limit the results to a reasonable range
+    limit = limit or Config.DEFAULT_SEARCH_LIMIT
+    limit = max(1, min(limit, Config.MAX_SEARCH_LIMIT))
     
     try:
         results = rag_pipeline.search(query, limit=limit, source_filter=source_filter)
@@ -748,10 +768,12 @@ def get_server_status():
 def main():
     """Main function to run the MCP server."""
     parser = argparse.ArgumentParser(description="General RAG MCP Server")
-    parser.add_argument("--data-dir", default="./rag_data", help="RAG data directory")
-    parser.add_argument("--transport", default="stdio", choices=["stdio", "sse"], 
-                       help="Transport method")
-    parser.add_argument("--no-rag", action="store_true", help="Disable RAG functionality")
+    parser.add_argument("--data-dir", default=Config.DATA_DIR, help=f"RAG data directory (default: {Config.DATA_DIR})")
+    parser.add_argument("--transport", default=Config.MCP_TRANSPORT, choices=["stdio", "sse"], 
+                       help=f"Transport method (default: {Config.MCP_TRANSPORT})")
+    parser.add_argument("--no-rag", action="store_true", 
+                       default=not Config.ENABLE_RAG,
+                       help="Disable RAG functionality")
     
     args = parser.parse_args()
     

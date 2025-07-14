@@ -18,6 +18,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 import uuid
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv is optional, continue without it
+    pass
+
 # Core dependencies
 import chromadb
 from chromadb.config import Settings
@@ -39,6 +47,68 @@ except ImportError:
     OPENAI_AVAILABLE = False
     print("Warning: openai package not installed. Run: pip install openai")
 
+# Configuration from environment variables
+class Config:
+    # Data storage
+    DATA_DIR = os.getenv('RAG_DATA_DIR', './rag_data')
+    DATABASE_NAME = os.getenv('RAG_DATABASE_NAME', 'metadata.db')
+    VECTOR_STORE_DIR = os.getenv('RAG_VECTOR_STORE_DIR', 'chroma_db')
+    REPOS_DIR = os.getenv('RAG_REPOS_DIR', 'repos')
+    
+    # AI Models
+    EMBEDDING_MODEL = os.getenv('RAG_EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+    CLAUDE_MODEL = os.getenv('RAG_CLAUDE_MODEL', 'claude-3-sonnet-20240229')
+    OPENAI_MODEL = os.getenv('RAG_OPENAI_MODEL', 'gpt-3.5-turbo')
+    DEFAULT_AI_MODEL = os.getenv('RAG_DEFAULT_AI_MODEL', 'claude')
+    AI_MAX_TOKENS = int(os.getenv('RAG_AI_MAX_TOKENS', '1000'))
+    
+    # Document processing
+    CHUNK_SIZE = int(os.getenv('RAG_CHUNK_SIZE', '1000'))
+    CHUNK_OVERLAP = int(os.getenv('RAG_CHUNK_OVERLAP', '200'))
+    LATEX_CHUNK_SIZE = int(os.getenv('RAG_LATEX_CHUNK_SIZE', '2000'))
+    LATEX_CHUNK_OVERLAP = int(os.getenv('RAG_LATEX_CHUNK_OVERLAP', '300'))
+    MAX_FILE_SIZE = int(os.getenv('RAG_MAX_FILE_SIZE', '10485760'))  # 10MB
+    
+    # Git processing
+    MAX_COMMITS = int(os.getenv('RAG_MAX_COMMITS', '1000'))
+    GIT_LOG_TIMEOUT = int(os.getenv('RAG_GIT_LOG_TIMEOUT', '60'))
+    GIT_DIFF_TIMEOUT = int(os.getenv('RAG_GIT_DIFF_TIMEOUT', '30'))
+    GIT_CLONE_TIMEOUT = int(os.getenv('RAG_GIT_CLONE_TIMEOUT', '300'))
+    GIT_VERIFY_TIMEOUT = int(os.getenv('RAG_GIT_VERIFY_TIMEOUT', '10'))
+    
+    # Search configuration
+    DEFAULT_SEARCH_LIMIT = int(os.getenv('RAG_DEFAULT_SEARCH_LIMIT', '5'))
+    DEFAULT_TICKET_SEARCH_LIMIT = int(os.getenv('RAG_DEFAULT_TICKET_SEARCH_LIMIT', '10'))
+    MAX_SEARCH_LIMIT = int(os.getenv('RAG_MAX_SEARCH_LIMIT', '20'))
+    
+    # File processing
+    @staticmethod
+    def get_supported_extensions():
+        extensions_str = os.getenv('RAG_SUPPORTED_EXTENSIONS', 
+            'py,js,ts,jsx,tsx,java,cpp,c,h,cs,php,rb,go,rs,swift,kt,scala,md,txt,rst,org,tex,json,yaml,yml,xml,html,css,sql,sh,bash,zsh,dockerfile,gitignore,env,toml,ini,cfg')
+        return {f'.{ext.strip()}' for ext in extensions_str.split(',')}
+    
+    @staticmethod
+    def get_ignored_directories():
+        dirs_str = os.getenv('RAG_IGNORE_DIRECTORIES',
+            'node_modules,__pycache__,venv,.venv,env,.env,target,build,.gradle,.m2,bin,obj,vendor,.idea,.vscode,.vs,.DS_Store,logs,tmp,temp,dist,out,.pytest_cache,.git,.svn')
+        return {dir.strip() for dir in dirs_str.split(',')}
+    
+    # Database
+    SCHEMA_VERSION = int(os.getenv('RAG_SCHEMA_VERSION', '2'))
+    
+    # Performance
+    PROCESSING_THREADS = int(os.getenv('RAG_PROCESSING_THREADS', '4'))
+    VECTOR_BATCH_SIZE = int(os.getenv('RAG_VECTOR_BATCH_SIZE', '100'))
+    
+    # Security
+    ALLOW_EXECUTABLE_FILES = os.getenv('RAG_ALLOW_EXECUTABLE_FILES', 'false').lower() == 'true'
+    MAX_PATH_DEPTH = int(os.getenv('RAG_MAX_PATH_DEPTH', '10'))
+    
+    # Development
+    DEV_MODE = os.getenv('RAG_DEV_MODE', 'false').lower() == 'true'
+    SKIP_FILE_VALIDATION = os.getenv('RAG_SKIP_FILE_VALIDATION', 'false').lower() == 'true'
+
 def timestamp() -> str:
     """Return current timestamp"""
     return datetime.now().isoformat()
@@ -46,7 +116,7 @@ def timestamp() -> str:
 class DatabaseManager:
     """Manages database schema and migrations"""
     
-    CURRENT_SCHEMA_VERSION = 2
+    CURRENT_SCHEMA_VERSION = Config.SCHEMA_VERSION
     
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
@@ -225,9 +295,10 @@ class GitCommitProcessor:
         matches = self.ticket_pattern.findall(message.upper())
         return list(set(matches))  # Remove duplicates
     
-    def get_git_commits(self, repo_path: Path, max_commits: int = 1000, since_commit: Optional[str] = None) -> List[Dict]:
+    def get_git_commits(self, repo_path: Path, max_commits: int = None, since_commit: Optional[str] = None) -> List[Dict]:
         """Extract commit information from a Git repository"""
         commits = []
+        max_commits = max_commits or Config.MAX_COMMITS
         
         try:
             # Build git log command
@@ -248,7 +319,7 @@ class GitCommitProcessor:
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=Config.GIT_LOG_TIMEOUT
             )
             
             if result.returncode != 0:
@@ -326,7 +397,7 @@ class GitCommitProcessor:
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=Config.GIT_DIFF_TIMEOUT
             )
             
             if result.returncode == 0:
@@ -341,9 +412,9 @@ class GitCommitProcessor:
 class LatexAwareDocumentProcessor:
     """Enhanced document processor with LaTeX-specific chunking strategies"""
     
-    def __init__(self, chunk_size: int = 2000, chunk_overlap: int = 300):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+    def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
+        self.chunk_size = chunk_size or Config.LATEX_CHUNK_SIZE
+        self.chunk_overlap = chunk_overlap or Config.LATEX_CHUNK_OVERLAP
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
         
         # LaTeX structure patterns
@@ -713,59 +784,13 @@ class LatexAwareDocumentProcessor:
 class DocumentProcessor:
     """Handles document parsing and chunking with LaTeX support"""
 
-    SUPPORTED_EXTENSIONS = {
-        '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.cpp', '.c', '.h',
-        '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala',
-        '.md', '.txt', '.rst', '.org', '.tex', '.json', '.yaml', '.yml',
-        '.xml', '.html', '.css', '.sql', '.sh', '.bash', '.zsh',
-        '.dockerfile', '.gitignore', '.env', '.toml', '.ini', '.cfg'
-    }
+    @property
+    def SUPPORTED_EXTENSIONS(self):
+        return Config.get_supported_extensions()
 
-    # Directory patterns to ignore (language-specific dependency and build directories)
-    IGNORE_DIRECTORIES = {
-        # JavaScript/Node.js
-        'node_modules', 'bower_components', '.npm', '.yarn',
-
-        # Python
-        '__pycache__', '.pytest_cache', 'site-packages', 'dist', 'build',
-        'egg-info', '.tox', '.coverage', '.mypy_cache',
-
-        # Virtual environments
-        'venv', '.venv', 'env', '.env', 'virtualenv',
-
-        # Java/Maven/Gradle
-        'target', 'build', '.gradle', '.m2',
-
-        # .NET/C#
-        'bin', 'obj', 'packages', '.nuget',
-
-        # Go
-        'vendor', 'pkg',
-
-        # Rust
-        'target', 'Cargo.lock',
-
-        # Ruby
-        'vendor', '.bundle', 'gems',
-
-        # PHP
-        'vendor', 'composer.lock',
-
-        # C/C++
-        'build', 'cmake-build-debug', 'cmake-build-release',
-
-        # General IDE and tools
-        '.idea', '.vscode', '.vs', '.DS_Store',
-        '.next', '.nuxt', '.cache', 'cache',
-
-        # Operating system
-        'Thumbs.db', 'desktop.ini',
-
-        # Logs and temporary files
-        'logs', 'log', 'tmp', 'temp', '.tmp', '.temp'
-        
-        # Note: Removed '.git' to allow processing of git metadata
-    }
+    @property
+    def IGNORE_DIRECTORIES(self):
+        return Config.get_ignored_directories()
 
     # File patterns to ignore
     IGNORE_FILE_PATTERNS = {
@@ -799,13 +824,13 @@ class DocumentProcessor:
         '.env', '.env.local', '.env.production', '.env.development'
     }
 
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+    def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
+        self.chunk_size = chunk_size or Config.CHUNK_SIZE
+        self.chunk_overlap = chunk_overlap or Config.CHUNK_OVERLAP
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
         
         # Initialize the LaTeX-aware processor
-        self.latex_processor = LatexAwareDocumentProcessor(chunk_size, chunk_overlap)
+        self.latex_processor = LatexAwareDocumentProcessor(self.chunk_size, self.chunk_overlap)
 
     def should_process_file(self, file_path: Path) -> bool:
         """Check if file should be processed"""
@@ -829,8 +854,8 @@ class DocumentProcessor:
         # Check file size (skip very large files)
         try:
             file_size = file_path.stat().st_size
-            # Skip files larger than 10MB (likely not source code)
-            if file_size > 10 * 1024 * 1024:
+            # Skip files larger than configured max size
+            if file_size > Config.MAX_FILE_SIZE:
                 return False
             # Skip empty files
             if file_size == 0:
@@ -918,7 +943,7 @@ class GitManager:
                 ["git", "clone", repo_url, str(target_dir)],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=Config.GIT_CLONE_TIMEOUT
             )
             return result.returncode == 0
         except subprocess.TimeoutExpired:
@@ -966,18 +991,18 @@ class GitManager:
 class RAGPipeline:
     """Main RAG pipeline class with LaTeX support"""
 
-    def __init__(self, data_dir: str = "./rag_data"):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir: str = None):
+        self.data_dir = Path(data_dir or Config.DATA_DIR)
         self.data_dir.mkdir(exist_ok=True)
 
         # Initialize components with LaTeX support
         self.processor = DocumentProcessor()
         self.git_processor = GitCommitProcessor()
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embedding_model = SentenceTransformer(Config.EMBEDDING_MODEL)
 
         # Initialize ChromaDB
         self.chroma_client = chromadb.PersistentClient(
-            path=str(self.data_dir / "chroma_db"),
+            path=str(self.data_dir / Config.VECTOR_STORE_DIR),
             settings=Settings(anonymized_telemetry=False)
         )
         self.collection = self.chroma_client.get_or_create_collection(
@@ -986,7 +1011,7 @@ class RAGPipeline:
         )
 
         # Initialize metadata database with migration
-        self.db_path = self.data_dir / "metadata.db"
+        self.db_path = self.data_dir / Config.DATABASE_NAME
         self.db_manager = DatabaseManager(str(self.db_path))
         
         # Migrate database to current schema
@@ -1060,7 +1085,7 @@ class RAGPipeline:
                         ["git", "cat-file", "-e", last_commit_hash],
                         cwd=actual_repo_path,
                         capture_output=True,
-                        timeout=10
+                        timeout=Config.GIT_VERIFY_TIMEOUT
                     )
                     if verify_result.returncode != 0:
                         print(f"Warning: Last processed commit {last_commit_hash[:8]} not found in repository, doing full sync")
@@ -1360,7 +1385,7 @@ Message:
     def ingest_git_repo(self, repo_url: str, source_name: Optional[str] = None) -> str:
         """Ingest a git repository with LaTeX support"""
         source_id = source_name or f"repo_{repo_url.split('/')[-1].replace('.git', '')}_{int(datetime.now().timestamp())}"
-        repo_dir = self.data_dir / "repos" / source_id
+        repo_dir = self.data_dir / Config.REPOS_DIR / source_id
 
         print(f"Cloning repository: {repo_url}")
 
@@ -1663,8 +1688,8 @@ Answer:"""
         if model == "claude" and self.anthropic_client:
             try:
                 response = self.anthropic_client.messages.create(
-                    model="claude-3-sonnet-20240229",
-                    max_tokens=1000,
+                    model=Config.CLAUDE_MODEL,
+                    max_tokens=Config.AI_MAX_TOKENS,
                     messages=[{"role": "user", "content": prompt}]
                 )
                 return response.content[0].text
@@ -1674,9 +1699,9 @@ Answer:"""
         elif model in ["openai", "gpt"] and self.openai_client:
             try:
                 response = self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=Config.OPENAI_MODEL,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=1000
+                    max_tokens=Config.AI_MAX_TOKENS
                 )
                 return response.choices[0].message.content
             except Exception as e:

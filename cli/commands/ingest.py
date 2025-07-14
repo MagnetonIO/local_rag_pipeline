@@ -1,65 +1,88 @@
-#!/usr/bin/env python3
 """
-Ingest commands for RAG Pipeline CLI
+Ingestion command handlers for RAG Pipeline CLI
 """
 
 import logging
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def add_ingest_commands(subparsers):
-    """Add ingest commands to the parser"""
-    ingest_parser = subparsers.add_parser("ingest", help="Ingest data sources")
-    ingest_subparsers = ingest_parser.add_subparsers(dest="ingest_type", help="Ingest type")
-    
-    # Directory ingestion
-    dir_parser = ingest_subparsers.add_parser("directory", help="Ingest directory")
-    dir_parser.add_argument("path", help="Directory path to ingest")
-    dir_parser.add_argument("--name", help="Source name")
-    
-    # Git repository ingestion
-    git_parser = ingest_subparsers.add_parser("git", help="Ingest git repository")
-    git_parser.add_argument("url", help="Git repository URL")
-    git_parser.add_argument("--name", help="Source name")
-    
-    # File ingestion
-    file_parser = ingest_subparsers.add_parser("file", help="Ingest single file")
-    file_parser.add_argument("path", help="File path to ingest")
-    file_parser.add_argument("--name", help="Source name")
 
-def handle_ingest_command(args):
-    """Handle ingest command"""
+def ingest_directory(rag_pipeline, path: str, name: Optional[str] = None) -> bool:
+    """Ingest a directory of documents"""
     try:
-        from rag_pipeline import RAGPipeline
-        
-        data_dir = Path(args.data_dir)
-        rag = RAGPipeline(str(data_dir))
-        
-        if args.ingest_type == "directory":
-            print(f"📁 Ingesting directory: {args.path}")
-            source_id = rag.ingest_directory(args.path, args.name)
-            print(f"✅ Successfully ingested as source: {source_id}")
-            
-        elif args.ingest_type == "git":
-            print(f"📦 Ingesting git repository: {args.url}")
-            source_id = rag.ingest_git_repo(args.url, args.name)
-            print(f"✅ Successfully ingested as source: {source_id}")
-            
-        elif args.ingest_type == "file":
-            print(f"📄 Ingesting file: {args.path}")
-            source_id = rag.ingest_single_file(args.path, args.name)
-            print(f"✅ Successfully ingested as source: {source_id}")
-            
-        else:
-            print("❌ Please specify ingest type: directory, git, or file")
+        path = Path(path).resolve()
+        if not path.exists():
+            logger.error(f"Directory not found: {path}")
             return False
+            
+        print(f"📁 Ingesting directory: {path}")
+        print(f"   Name: {name or path.name}")
+        
+        source_id = rag_pipeline.ingest_directory(str(path), name)
+        
+        # Get stats
+        sources = rag_pipeline.list_sources()
+        source_info = next((s for s in sources if s['id'] == source_id), None)
+        
+        if source_info:
+            print(f"\n✅ Successfully ingested directory")
+            print(f"   Source ID: {source_id}")
+            print(f"   Files: {source_info['file_count']}")
+            print(f"   Chunks: {source_info['chunk_count']}")
         
         return True
         
-    except ImportError:
-        print("❌ RAG Pipeline module not found")
-        return False
     except Exception as e:
-        logger.error(f"Error ingesting: {e}")
+        logger.error(f"Failed to ingest directory: {e}")
+        return False
+
+
+def ingest_file(rag_pipeline, path: str, name: Optional[str] = None) -> bool:
+    """Ingest a single file"""
+    try:
+        path = Path(path).resolve()
+        if not path.exists():
+            logger.error(f"File not found: {path}")
+            return False
+            
+        print(f"📄 Ingesting file: {path}")
+        print(f"   Name: {name or path.name}")
+        
+        source_id = rag_pipeline.ingest_single_file(str(path), name)
+        
+        print(f"\n✅ Successfully ingested file")
+        print(f"   Source ID: {source_id}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to ingest file: {e}")
+        return False
+
+
+def ingest_git(rag_pipeline, url: str, name: Optional[str] = None) -> bool:
+    """Ingest a Git repository"""
+    try:
+        print(f"📦 Ingesting Git repository: {url}")
+        print(f"   Name: {name or url.split('/')[-1].replace('.git', '')}")
+        
+        source_id = rag_pipeline.ingest_git_repo(url, name)
+        
+        # Get stats
+        sources = rag_pipeline.list_sources()
+        source_info = next((s for s in sources if s['id'] == source_id), None)
+        
+        if source_info:
+            print(f"\n✅ Successfully ingested repository")
+            print(f"   Source ID: {source_id}")
+            print(f"   Files: {source_info['file_count']}")
+            print(f"   Chunks: {source_info['chunk_count']}")
+            print(f"   Commits: {source_info.get('commit_count', 0)}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to ingest repository: {e}")
         return False

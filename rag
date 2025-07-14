@@ -1,0 +1,16 @@
+#!/bin/bash
+# RAG Pipeline CLI Wrapper
+
+# Get the directory where this script is installed
+INSTALL_DIR="$(dirname "$(readlink -f "$0")")"
+
+# Set PYTHONPATH to include the installation directory
+export PYTHONPATH="$INSTALL_DIR:$PYTHONPATH"
+
+# Set default data directory if not specified
+if [ -z "$RAG_DATA_DIR" ]; then
+    export RAG_DATA_DIR="$HOME/.rag_pipeline"
+fi
+
+# Execute the main script with all arguments
+exec python3 "$INSTALL_DIR/main.py" "$@"

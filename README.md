@@ -1,91 +1,267 @@
-# Local RAG Pipeline Setup
+# RAG Pipeline - Professional Document Intelligence System
 
-## Installation
+A comprehensive CLI tool for ingesting, indexing, and querying documents with AI-powered intelligence. Features semantic search, Git integration, and Model Context Protocol (MCP) support.
 
-1. **Install Python dependencies:**
+## 🚀 Quick Start
+
+### Installation
+
+1. **Install dependencies:**
 ```bash
-pip install chromadb sentence-transformers anthropic openai tiktoken sqlite3 mcp
+pip install -r requirements.txt
 ```
 
-2. **Set up API keys** (add to your `.env` file or environment):
+2. **Set up the CLI for system-wide access:**
 ```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+3. **Configure environment variables:**
+```bash
+# Copy the example configuration
+cp .env.example .env
+
+# Edit .env with your API keys and preferences
+# At minimum, set:
 export ANTHROPIC_API_KEY="your_anthropic_api_key"
 export OPENAI_API_KEY="your_openai_api_key"
 ```
 
-## Quick Start
+## 📋 Command Overview
 
-### 1. Ingest a Local Directory
+### Ingestion Commands
 ```bash
-python rag_pipeline.py ingest-dir /path/to/your/project --name "my_project"
+# Ingest a directory of documents
+rag ingest-dir ./docs --name "project-docs"
+
+# Ingest a single file
+rag ingest-file ./document.pdf --name "important-doc"
+
+# Ingest a Git repository with full commit history
+rag ingest-git https://github.com/user/repo --name "my-project"
 ```
 
-### 2. Ingest a Single File
+### Search & Query Commands
 ```bash
-python rag_pipeline.py ingest-file /path/to/document.py --name "single_doc"
+# Semantic search across all documents
+rag search "authentication flow" --limit 10
+
+# Ask questions using AI (Claude or OpenAI)
+rag query "How does the login system work?" --model claude
+
+# Search Git commits by ticket ID
+rag search-ticket "JIRA-123" --source my-project
 ```
 
-### 3. Ingest a Git Repository
+### Analysis Commands
 ```bash
-python rag_pipeline.py ingest-git https://github.com/user/repo.git --name "repo_name"
+# Analyze LaTeX document structure
+rag latex-structure my-latex-docs
 ```
 
-### 4. Query Your Data
+### Maintenance Commands
 ```bash
-# Using Claude
-python rag_pipeline.py query "How does the authentication work?" --model claude
+# List all data sources
+rag list
 
-# Using OpenAI
-python rag_pipeline.py query "What are the main components?" --model openai
+# Update a source with new content
+rag incremental-update my-project
 
-# Filter by specific source
-python rag_pipeline.py query "Explain the database schema" --source my_project
+# Reprocess Git commits for enhanced metadata
+rag reprocess-commits my-project
+
+# Delete a source and all its data
+rag delete old-source --confirm
 ```
 
-### 5. Search Without LLM
+### System Commands
 ```bash
-python rag_pipeline.py search "authentication logic" --limit 10
+# Show system status
+rag status --show-sources
+
+# Database migrations
+rag migrate status
+rag migrate up
 ```
 
-### 6. Git-Specific Features
-```bash
-# Search commits by ticket ID
-python rag_pipeline.py search-ticket "GET-1903" --source repo_name
+## 🏗️ Architecture
 
-# Incremental update (pull new commits and files)
-python rag_pipeline.py incremental-update source_id
+### Professional CLI Structure
+The system is built with a clean, modular architecture:
 
-# Reprocess Git commits for existing source
-python rag_pipeline.py reprocess-commits source_id
+```
+main.py                    # Unified CLI entry point with all commands
+├── RAGPipelineCLI        # Professional CLI interface class
+│   ├── setup_system()    # Automatic initialization and migration
+│   ├── Ingestion methods # ingest_directory(), ingest_file(), ingest_git()
+│   ├── Search methods    # search(), query(), search_ticket()
+│   ├── Analysis methods  # latex_structure()
+│   └── Maintenance       # list_sources(), delete_source(), etc.
+│
+rag_pipeline.py           # Core RAG pipeline implementation
+├── DocumentProcessor     # Smart document chunking and processing
+├── GitCommitProcessor    # Git-specific functionality
+└── RAGPipeline          # Main pipeline orchestrator
+
+database/                 # Database management
+├── database_manager.py   # Schema migrations
+└── migrations/          # Version-controlled migrations
 ```
 
-### 7. Manage Sources
-```bash
-# List all ingested sources
-python rag_pipeline.py list
-
-# Delete a source
-python rag_pipeline.py delete source_id_here
+### Data Storage
+```
+rag_data/                # Default data directory (~/.rag_pipeline)
+├── metadata.db         # SQLite database for metadata
+├── vector_store/       # ChromaDB vector embeddings
+└── repos/             # Cloned Git repositories
+    └── [source_id]/
 ```
 
-## MCP Server Integration
+## ✨ Key Features
 
-The RAG pipeline now includes **Model Context Protocol (MCP) server** support, allowing direct integration with Claude Desktop and other MCP-compatible clients.
+### 📁 Multi-Source Support
+- **Local Directories**: Recursively process entire project directories
+- **Single Files**: Ingest individual documents
+- **Git Repositories**: Clone and process with full commit history
+- **Smart Filtering**: Automatically skips build artifacts, caches, etc.
 
-### Start MCP Server
+### 🔍 Advanced Search Capabilities
+- **Semantic Search**: Find documents by meaning, not just keywords
+- **AI-Powered Q&A**: Get intelligent answers with context
+- **Commit Search**: Find Git commits by ticket IDs
+- **Source Filtering**: Limit searches to specific sources
+
+### 🔧 Git Integration
+- **Full Commit History**: Process and search through all commits
+- **Ticket ID Extraction**: Automatically extract JIRA/GitHub issue numbers
+- **Incremental Updates**: Only process new commits and changes
+- **File Change Tracking**: See which files were modified in each commit
+
+### 📊 Smart Processing
+- **25+ File Types**: Support for code, docs, configs, and more
+- **Token-Aware Chunking**: Intelligent document splitting with overlap
+- **Metadata Preservation**: Track source, path, and context for each chunk
+- **LaTeX Support**: Special handling for academic documents
+
+### 🤖 AI Integration
+- **Claude (Anthropic)**: Advanced reasoning and code understanding
+- **OpenAI GPT**: Alternative AI model support
+- **Context-Aware**: Answers include relevant source information
+- **Model Switching**: Easy switching between AI providers
+
+## 🛠️ Configuration
+
+The RAG Pipeline is highly configurable through environment variables. Copy `.env.example` to `.env` and customize as needed.
+
+### Essential Environment Variables
 ```bash
-# Basic MCP server
+# API Keys (Required)
+export ANTHROPIC_API_KEY="sk-ant-api03-your-key-here"
+export OPENAI_API_KEY="sk-your-openai-key-here"
+
+# Data Storage
+export RAG_DATA_DIR="./rag_data"              # Main data directory
+export RAG_DATABASE_NAME="metadata.db"        # Database filename
+export RAG_VECTOR_STORE_DIR="chroma_db"       # Vector store directory
+```
+
+### AI Model Configuration
+```bash
+# Model Selection
+export RAG_DEFAULT_AI_MODEL="claude"          # Default AI model (claude/openai)
+export RAG_EMBEDDING_MODEL="all-MiniLM-L6-v2" # Embedding model
+export RAG_CLAUDE_MODEL="claude-3-sonnet-20240229"
+export RAG_OPENAI_MODEL="gpt-3.5-turbo"
+export RAG_AI_MAX_TOKENS="1000"               # Max tokens for responses
+```
+
+### Document Processing
+```bash
+# Chunk Settings
+export RAG_CHUNK_SIZE="1000"                  # Standard chunk size (tokens)
+export RAG_CHUNK_OVERLAP="200"                # Standard overlap (tokens)
+export RAG_LATEX_CHUNK_SIZE="2000"            # LaTeX chunk size (tokens)
+export RAG_LATEX_CHUNK_OVERLAP="300"          # LaTeX overlap (tokens)
+export RAG_MAX_FILE_SIZE="10485760"           # Max file size (10MB)
+```
+
+### Git Processing
+```bash
+# Git Configuration
+export RAG_MAX_COMMITS="1000"                 # Max commits to process
+export RAG_GIT_LOG_TIMEOUT="60"               # Git log timeout (seconds)
+export RAG_GIT_CLONE_TIMEOUT="300"            # Git clone timeout (seconds)
+```
+
+### Search Configuration
+```bash
+# Search Limits
+export RAG_DEFAULT_SEARCH_LIMIT="5"           # Default search results
+export RAG_DEFAULT_TICKET_SEARCH_LIMIT="10"   # Default ticket search results
+export RAG_MAX_SEARCH_LIMIT="20"              # Maximum search results
+```
+
+### File Types and Patterns
+```bash
+# Customizable file types (comma-separated, no dots)
+export RAG_SUPPORTED_EXTENSIONS="py,js,ts,java,cpp,md,txt,json,yaml"
+
+# Directories to ignore (comma-separated)
+export RAG_IGNORE_DIRECTORIES="node_modules,__pycache__,venv,.git,build,dist"
+```
+
+### MCP Server Configuration
+```bash
+# MCP Settings
+export RAG_MCP_HOST="localhost"
+export RAG_MCP_PORT="8000"
+export RAG_MCP_TRANSPORT="stdio"              # stdio, ws, or sse
+export RAG_MCP_ENABLE_RAG="true"              # Enable/disable RAG features
+```
+
+### Performance and Security
+```bash
+# Performance Tuning
+export RAG_PROCESSING_THREADS="4"
+export RAG_VECTOR_BATCH_SIZE="100"
+
+# Security
+export RAG_ALLOW_EXECUTABLE_FILES="false"
+export RAG_MAX_PATH_DEPTH="10"
+
+# Development
+export RAG_VERBOSE="false"
+export RAG_LOG_LEVEL="INFO"                   # DEBUG, INFO, WARNING, ERROR
+```
+
+For a complete list of all available environment variables, see `.env.example`.
+
+### Supported File Types
+- **Code**: `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.go`, `.rs`, `.c`, `.h`, `.cs`, `.php`, `.rb`, `.swift`, `.kt`, `.scala`, `.r`, `.m`, `.sh`, `.bash`
+- **Markup**: `.md`, `.rst`, `.org`, `.tex`, `.html`, `.xml`
+- **Config**: `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.conf`, `.env`
+- **Docs**: `.txt`, `.css`
+
+### Ignored Patterns
+Automatically skips:
+- Version control: `.git`, `.svn`
+- Dependencies: `node_modules`, `vendor`, `target`
+- Build outputs: `dist`, `build`, `out`
+- Caches: `__pycache__`, `.pytest_cache`
+- Virtual envs: `.venv`, `venv`, `.env`
+
+## 🔌 MCP Server Integration
+
+The RAG pipeline includes Model Context Protocol (MCP) server support for integration with Claude Desktop and other MCP clients.
+
+### Starting the MCP Server
+```bash
 python mcp_rag_server.py --data-dir ./rag_data
-
-# With different transport
-python mcp_rag_server.py --transport stdio --data-dir ./rag_data
-
-# Disable RAG functionality (server-only mode)
-python mcp_rag_server.py --no-rag
 ```
 
-### Claude Desktop Integration
-Add to your Claude Desktop MCP configuration:
+### Claude Desktop Configuration
+Add to your Claude Desktop MCP settings:
 ```json
 {
   "mcpServers": {
@@ -98,206 +274,98 @@ Add to your Claude Desktop MCP configuration:
 ```
 
 ### Available MCP Tools
-- `search_documents` - Semantic search through documents
-- `search_commits_by_ticket` - Find commits by ticket ID
-- `ask_question` - AI-powered Q&A with context
-- `query_with_context` - Get both answer and source context
-- `list_sources` - Show all ingested sources
-- `ingest_directory` - Add local directories
-- `ingest_git_repository` - Clone and ingest repos
-- `incremental_update` - Update existing sources
-- `reprocess_git_commits` - Reprocess commit data
-- `delete_source` - Remove sources
-- `server_status` - Server health and capabilities
+- `search_documents` - Semantic search
+- `ask_question` - AI-powered Q&A
+- `search_commits_by_ticket` - Git commit search
+- `list_sources` - View all sources
+- `ingest_directory` - Add directories
+- `ingest_git_repository` - Clone repos
+- And more...
 
-## Features
-
-### ✅ **Multi-Source Support**
-- Local directories
-- Single files
-- Git repositories (automatically cloned)
-- Remembers git commit hashes for updates
-
-### ✅ **Advanced Git Integration**
-- Commit-level processing and search
-- Ticket ID extraction from commit messages
-- Incremental updates (pull new commits only)
-- Commit reprocessing for enhanced data
-- Git repository metadata tracking
-
-### ✅ **Smart File Processing**
-- Supports 25+ file types (Python, JS, Markdown, etc.)
-- Ignores common build/cache directories
-- Handles large codebases efficiently
-- Single file ingestion support
-
-### ✅ **Intelligent Chunking**
-- Token-aware chunking with overlap
-- Preserves context across chunks
-- Metadata tracking for each chunk
-- Commit-aware chunking for Git repos
-
-### ✅ **Dual LLM Support**
-- Claude (Anthropic) integration
-- OpenAI GPT integration
-- Easy model switching
-- Context-aware responses
-
-### ✅ **Persistent Memory**
-- ChromaDB for vector storage
-- SQLite for metadata tracking
-- Incremental updates (only reprocess changed files)
-- Git commit tracking and deduplication
-
-### ✅ **Advanced Search**
-- Semantic similarity search
-- Source filtering
-- Ticket-based commit search
-- Configurable result limits
-- Context-aware querying
-
-### ✅ **MCP Server Integration**
-- FastMCP server implementation
-- Claude Desktop compatibility
-- Real-time document access
-- Comprehensive tool ecosystem
-
-## File Structure
-
-After running, you'll have:
-```
-rag_data/
-├── chroma_db/          # Vector embeddings
-├── metadata.db         # File/source metadata + Git commits
-└── repos/             # Cloned git repositories
-    └── source_id/
-        └── ...
-```
-
-## Configuration Options
-
-### Chunk Settings
-Modify in the `DocumentProcessor` class:
-- `chunk_size`: Maximum tokens per chunk (default: 1000)
-- `chunk_overlap`: Token overlap between chunks (default: 200)
-
-### Supported File Types
-Currently supports:
-- **Code**: `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.go`, `.rs`, etc.
-- **Documentation**: `.md`, `.txt`, `.rst`, `.org`
-- **Config**: `.json`, `.yaml`, `.toml`, `.env`
-- **Web**: `.html`, `.css`, `.xml`
-
-### Ignored Patterns
-Automatically skips:
-- `.git`, `node_modules`, `__pycache__`
-- `dist`, `build`, `.venv`, `target`
-- Binary files and archives
-
-## API Usage Examples
+## 📚 API Usage
 
 ### Python Integration
 ```python
 from rag_pipeline import RAGPipeline
 
-# Initialize
-rag = RAGPipeline("./my_rag_data")
+# Initialize pipeline
+rag = RAGPipeline("./rag_data")
 
 # Ingest sources
-source_id = rag.ingest_directory("/path/to/project")
-file_id = rag.ingest_single_file("/path/to/document.py")
-repo_id = rag.ingest_git_repo("https://github.com/user/repo.git")
+source_id = rag.ingest_directory("/path/to/project", "my-project")
+repo_id = rag.ingest_git_repo("https://github.com/user/repo", "repo-name")
 
-# Query with context
-answer = rag.query_with_llm("How does authentication work?", model="claude")
-print(answer)
-
-# Search for specific content
-results = rag.search("database connection", n_results=5)
-for result in results:
-    print(f"File: {result['metadata']['file_path']}")
-    print(f"Content: {result['content'][:100]}...")
+# Search and query
+results = rag.search("authentication", limit=5)
+answer = rag.query_with_llm("How does the login work?", model="claude")
 
 # Git-specific features
-commits = rag.search_commits_by_ticket("GET-1903")
-update_stats = rag.incremental_update("repo_source_id")
+commits = rag.search_commits_by_ticket("JIRA-123")
+stats = rag.incremental_update(repo_id)
 
-# List and manage sources
+# Manage sources
 sources = rag.list_sources()
-rag.delete_source("old_source_id")
+rag.delete_source("old-source")
 ```
 
-### MCP Integration
-```python
-# The MCP server exposes all functionality through tools
-# Use with Claude Desktop or other MCP clients
-# Tools are automatically available when server is running
-```
-
-## Advanced Features
-
-### Git Repository Management
-- **Incremental Updates**: Only process new commits since last update
-- **Commit Metadata**: Extract ticket IDs, author info, and file changes
-- **Repository Tracking**: Maintain git commit hashes and branch info
-- **Ticket Search**: Find specific commits by JIRA/GitHub issue numbers
-
-### Enhanced Search Capabilities
-- **Semantic Search**: Vector similarity across all document types
-- **Commit Search**: Find commits by ticket ID or content
-- **Source Filtering**: Limit searches to specific repositories or directories
-- **Context Preservation**: Maintain document structure and relationships
-
-### Memory Efficiency
-- Processes files one at a time
-- Configurable chunk sizes
-- Automatic cleanup of old chunks when files change
-- Efficient Git commit deduplication
-
-### MCP Server Features
-- **Real-time Integration**: Direct access from Claude Desktop
-- **Comprehensive Tools**: Full RAG pipeline access via MCP protocol
-- **Status Monitoring**: Server health and capability reporting
-- **Error Handling**: Graceful degradation and error reporting
-
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **"mcp package not installed"**
+1. **Missing dependencies**
    ```bash
-   pip install mcp
+   pip install -r requirements.txt
    ```
 
-2. **"anthropic package not installed"**
-   ```bash
-   pip install anthropic
-   ```
+2. **API key errors**
+   - Verify keys are set in environment
+   - Check API quotas and billing
+   - Ensure model access permissions
 
-3. **"No relevant documents found"**
-   - Check if files were ingested: `python rag_pipeline.py list`
-   - Verify file types are supported
+3. **No search results**
+   - Run `rag list` to verify ingestion
+   - Check file types are supported
    - Try broader search terms
 
 4. **Git clone failures**
-   - Ensure git is installed and accessible
-   - Check repository URL and permissions
-   - Network connectivity
+   - Verify repository URL
+   - Check network connectivity
+   - Ensure git is installed
 
-5. **API errors**
-   - Verify API keys are set correctly
-   - Check API quotas and billing
-   - Ensure proper model access
+5. **Permission errors**
+   - Run setup.sh with appropriate permissions
+   - Check data directory access
 
-6. **MCP Connection Issues**
-   - Verify Claude Desktop MCP configuration
-   - Check server startup logs
-   - Ensure correct data directory paths
+## 🔄 Upgrading
 
-## Migration and Upgrades
+When upgrading to a new version:
 
-When upgrading from older versions:
-- Run database migrations if available
-- Check for new CLI commands and options
-- Update MCP server configuration if using Claude Desktop
-- Review new Git-specific features for development workflows
+1. **Backup your data**
+   ```bash
+   cp -r ~/.rag_pipeline ~/.rag_pipeline.backup
+   ```
+
+2. **Run migrations**
+   ```bash
+   rag migrate status
+   rag migrate up
+   ```
+
+3. **Update dependencies**
+   ```bash
+   pip install -r requirements.txt --upgrade
+   ```
+
+## 📄 License
+
+This project is part of the Magneton AI ecosystem. See LICENSE file for details.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please ensure:
+- Code follows existing patterns
+- Tests pass (when available)
+- Documentation is updated
+- Git commits are descriptive
+
+For major changes, please open an issue first to discuss the proposed changes.
