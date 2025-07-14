@@ -33,6 +33,14 @@ INSTALL_DIR="$(dirname "$(readlink -f "$0")")"
 # Set PYTHONPATH to include the installation directory
 export PYTHONPATH="$INSTALL_DIR:$PYTHONPATH"
 
+# Load environment variables from .env if it exists
+if [ -f "$INSTALL_DIR/.env" ]; then
+    # Use set -a to export all variables, then source the file
+    set -a
+    source "$INSTALL_DIR/.env"
+    set +a
+fi
+
 # Set default data directory if not specified
 if [ -z "$RAG_DATA_DIR" ]; then
     export RAG_DATA_DIR="$HOME/.rag_pipeline"
